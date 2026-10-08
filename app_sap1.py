@@ -27,7 +27,7 @@ class SAPIncidentSchema(BaseModel):
     )
     modulo_sugerido: str = Field(description="Módulo SAP detectado (MM, SD, FI, CO, PP, ABAP, Desconocido).")
     informacion_adicional_requerida: Optional[str] = Field(
-        description="Pregunta aclaratoria si el módulo es ambiguo o requiere datos adicionales del usuario. Si está todo claro, dejar vacío."
+        description="Pregunta aclaratoria si el módulo es ambiguo. Si está todo claro, dejar vacío."
     )
 
 # =====================================================================
@@ -37,7 +37,7 @@ def procesar_con_gemini(texto_usuario: str, cliente_seleccionado: str) -> dict:
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except Exception:
-        API_KEY = "TU_API_KEY_REAL" # Fallback local
+        API_KEY = "TU_API_KEY_REAL"
         
     client = genai.Client(api_key=API_KEY)
     fecha_hoy = datetime.now().strftime("%d.%m.%Y")
@@ -68,73 +68,135 @@ def procesar_con_gemini(texto_usuario: str, cliente_seleccionado: str) -> dict:
     return json.loads(response.text)
 
 # =====================================================================
-# 3. FUNCIÓN DE VALIDACIÓN CON LA BASE DE DATOS (RENDER)
+# 3. FUNCIONES DE BASE DE DATOS (RENDER)
 # =====================================================================
+def conectar_db():
+    return psycopg2.connect(
+        host=st.secrets["DB_HOST"],
+        database=st.secrets["DB_NAME"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        port=st.secrets["DB_PORT"]
+    )
+
 def validar_credenciales_db(usuario, contrasena):
     """Consulta la base de datos en la nube para verificar el acceso."""
     try:
-        conn = psycopg2.connect(
-            host=st.secrets["DB_HOST"],
-            database=st.secrets["DB_NAME"],
-            user=st.secrets["DB_USER"],
-            password=st.secrets["DB_PASSWORD"],
-            port=st.secrets["DB_PORT"]
-        )
+        conn = conectar_db()
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT contrasena, empresa FROM usuarios_sap WHERE usuario = %s", 
-            (usuario,)
-        )
+        cursor.execute("SELECT contrasena, empresa FROM usuarios_sap WHERE usuario = %s", (usuario,))
         registro = cursor.fetchone()
         cursor.close()
         conn.close()
         
-        # Validamos si el registro existe y si la contraseña coincide
         if registro and registro[0] == contrasena:
             return {"valido": True, "empresa": registro[1]}
-            
     except Exception as e:
-        st.error(f"Error de conexión con la base de datos: {e}")
+        st.error(f"Error de autenticación DB: {e}")
     return {"valido": False, "empresa": None}
 
+def inicializar_tabla_tickets():
+    """Crea la tabla de almacenamiento de tickets estructurados por IA si no existe."""
+    try:
+        conn = conectar_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tickets_sap (
+                id SERIAL PRIMARY KEY,
+                usuario VARCHAR(50) NOT NULL,
+                empresa VARCHAR(100) NOT NULL,
+                fecha VARCHAR(20) NOT NULL,
+                asunto VARCHAR(200) NOT NULL,
+                modulo VARCHAR(20) NOT NULL,
+                prioridad VARCHAR(20) NOT NULL,
+                detalle TEXT NOT NULL,
+                info_adicional TEXT,
+                fecha_servidor TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error al inicializar infraestructura de tickets: {e}")
+
+def guardar_ticket_db(usuario, empresa, ticket_dict):
+    """Persiste el análisis estructurado de Gemini en PostgreSQL."""
+    try:
+        conn = conectar_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tickets_sap (usuario, empresa, fecha, asunto, modulo, prioridad, detalle, info_adicional)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            usuario,
+            empresa,
+            ticket_dict.get("fecha"),
+            ticket_dict.get("asunto"),
+            ticket_dict.get("modulo_sugerido"),
+            ticket_dict.get("prioridad"),
+            ticket_dict.get("detalle"),
+            ticket_dict.get("informacion_adicional_requerida")
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error al guardar el ticket en el historial: {e}")
+
+def obtener_historial_tickets_db(usuario):
+    """Recupera únicamente los incidentes creados por el usuario logueado."""
+    try:
+        conn = conectar_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT fecha, asunto, modulo, prioridad, detalle, info_adicional, id 
+            FROM tickets_sap 
+            WHERE usuario = %s 
+            ORDER BY id DESC
+        """, (usuario,))
+        registros = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return registros
+    except Exception as e:
+        st.error(f"Error al leer el historial: {e}")
+        return []
+
 # =====================================================================
-# 4. CONTROL DE FLUJO DE INTERFAZ Y PANTALLAS
+# 4. CONTROL DE FLUJO DE INTERFAZ
 # =====================================================================
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# --- PANTALLA 1: LOGIN DE USUARIO ---
+# --- PANTALLA 1: LOGIN ---
 if not st.session_state["autenticado"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
     col_login, _ = st.columns([1, 1])
     
     with col_login:
         st.subheader("🔑 Acceso al Portal SAP MVP")
-        st.markdown("Ingrese las credenciales registradas mediante la app de administración.")
-        
         user_input = st.text_input("Nombre de Usuario")
         pass_input = st.text_input("Contraseña", type="password")
         boton_login = st.button("Iniciar Sesión", use_container_width=True)
         
-        # Evaluamos el flujo del login ÚNICAMENTE después de que el botón es declarado
         if boton_login:
             if not user_input or not pass_input:
                 st.warning("Por favor complete ambos campos.")
             else:
                 with st.spinner("Autenticando en la base de datos cloud..."):
                     resultado_auth = validar_credenciales_db(user_input, pass_input)
-                    
                     if resultado_auth["valido"]:
                         st.session_state["autenticado"] = True
                         st.session_state["usuario_actual"] = user_input
                         st.session_state["empresa_actual"] = resultado_auth["empresa"]
+                        inicializar_tabla_tickets() # Asegura que exista la tabla de registros
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
 
-# --- PANTALLA 2: PANEL DEL CLASIFICADOR (ACCESO SEGURO) ---
+# --- PANTALLA 2: PANEL DEL CLASIFICADOR E HISTORIAL ---
 else:
-    # Encabezado superior con botón de cierre de sesión
     col_titulo, col_logout = st.columns([4, 1])
     with col_titulo:
         st.title("⚙️ Mesa de Ayuda Inteligente SAP — Prototipo MVP")
@@ -149,7 +211,6 @@ else:
             
     st.divider()
 
-    # Estructura del clasificador web
     col_izquierda, col_derecha = st.columns(2, gap="large")
 
     with col_izquierda:
@@ -165,7 +226,12 @@ else:
         boton_procesar = st.button("🚀 Analizar y Clasificar Incidente", use_container_width=True)
 
     with col_derecha:
-        st.subheader("📊 Output del Sistema")
+        # Estructuramos la columna derecha en 3 pestañas dinámicas
+        tab_actual, tab_json, tab_historial = st.tabs([
+            "📋 Último Análisis", 
+            "💻 JSON Estructurado", 
+            "⏳ Historial de Tickets"
+        ])
         
         if boton_procesar:
             if not input_problema.strip():
@@ -173,34 +239,7 @@ else:
             else:
                 with st.spinner("Gemini analizando impacto y estructura técnica..."):
                     try:
+                        # 1. Procesa con Inteligencia Artificial
                         resultado_dict = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
                         st.session_state["resultado"] = resultado_dict
-                    except Exception as e:
-                        st.error(f"Error de conexión con la API: {e}")
-        
-        if "resultado" in st.session_state:
-            res = st.session_state["resultado"]
-            tab_humana, tab_json = st.tabs(["📋 Reporte Ordenado", "💻 JSON Estructurado para API"])
-            
-            with tab_humana:
-                c1, c2, c3 = st.columns(3)
-                prioridad_emoji = "🚨" if "Alta" in res.get('prioridad', 'Normal') else "ℹ️"
-                c1.metric(label="Fecha Registro", value=res.get('fecha'))
-                c2.metric(label="Módulo SAP", value=res.get('modulo_sugerido'))
-                c3.metric(label=f"{prioridad_emoji} Prioridad", value=res.get('prioridad'))
-                
-                st.markdown(f"**🏢 Cliente:** {res.get('cliente')}")
-                st.markdown(f"**📌 Asunto:** {res.get('asunto')}")
-                
-                if res.get('informacion_adicional_requerida'):
-                    st.error(f"⚠️ **Información Adicional Requerida:** {res.get('informacion_adicional_requerida')}")
-                else:
-                    st.success("✅ Datos completos: No se requiere información adicional.")
-                    
-                st.info(f"**📝 Detalle del Ticket:**\n\n{res.get('detalle')}")
-                
-            with tab_json:
-                st.markdown("Este objeto JSON está formateado de forma nativa para alimentar sistemas externos:")
-                st.json(res)
-        else:
-            st.info("Complete el formulario de la izquierda y presione el botón para ver la clasificación inteligente.")
+
