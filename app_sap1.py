@@ -233,9 +233,9 @@ else:
         
         boton_procesar = st.button("🚀 Analizar y Clasificar Incidente", use_container_width=True)
 
-           with col_derecha:
+        with col_derecha:
         # 1. CREAMOS LAS PESTAÑAS (Siempre visibles en la columna derecha)
-        tab_actual, tab_json, tab_historial = st.tabs([
+         tab_actual, tab_json, tab_historial = st.tabs([
             "📋 Último Análisis", 
             "💻 JSON Estructurado", 
             "⏳ Historial de Tickets"
@@ -326,4 +326,3 @@ else:
                             st.markdown(f"❌ **Requerimiento pendiente:** *{t_info}*")
                         else:
                             st.markdown("✨ *Procesado con éxito completo sin datos faltantes.*")
-
