@@ -245,4 +245,4 @@ else:
             else:
                 with st.spinner("Gemini analizando impacto y estructura técnica..."):
                     try:
-                        # 1. Procesa con Inteligencia Artificial
+                        resultado_dict = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
