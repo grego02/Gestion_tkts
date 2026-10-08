@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from google import genai
+import psycopg2
 
 # Configuración estética de la página web
 st.set_page_config(
@@ -12,54 +13,6 @@ st.set_page_config(
     page_icon="⚙️",
     layout="wide"
 )
-
-# Base de datos de usuarios simulada para el MVP (Usuario: [Contraseña, Empresa])
-# USUARIOS_MOCK = {
-#     "carlos.logistica": ["sap123", "Logística S.A."],
-#     "ana.fi": ["sap456", "Siderúrgica del Sur"],
-#    "admin": ["admin", "Interno / Consultoría"]
-# }
-
-# Reemplazar la sección 3 del archivo app_sap.py con este bloque dinámico:
-
-import psycopg2
-
-def validar_credenciales_db(usuario, contrasena):
-    """Consulta la base de datos en la nube para verificar el acceso."""
-    try:
-        conn = psycopg2.connect(
-            host=st.secrets["DB_HOST"],
-            database=st.secrets["DB_NAME"],
-            user=st.secrets["DB_USER"],
-            password=st.secrets["DB_PASSWORD"],
-            port=st.secrets["DB_PORT"]
-        )
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT contrasena, empresa FROM usuarios_sap WHERE usuario = %s", 
-            (usuario,)
-        )
-        registro = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
-        if registro and registro[0] == contrasena:
-            return {"valido": True, "empresa": registro[1]}
-    except Exception as e:
-        st.error(f"Error de conexión con la base de datos: {e}")
-    return {"valido": False, "empresa": None}
-
-# Modificar la lógica del botón de login dentro de tu Pantalla 1:
-if boton_login:
-    resultado_auth = validar_credenciales_db(user_input, pass_input)
-    if resultado_auth["valido"]:
-        st.session_state["autenticado"] = True
-        st.session_state["usuario_actual"] = user_input
-        st.session_state["empresa_actual"] = resultado_auth["empresa"]
-        st.rerun()
-    else:
-        st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
-
 
 # =====================================================================
 # 1. ESQUEMA PYDANTIC PARA GEMINI
@@ -81,12 +34,10 @@ class SAPIncidentSchema(BaseModel):
 # 2. FUNCIÓN DE PROCESAMIENTO CON LA API DE GEMINI
 # =====================================================================
 def procesar_con_gemini(texto_usuario: str, cliente_seleccionado: str) -> dict:
-    # Intenta leer desde los secrets de Streamlit (para producción en la nube)
-    # Si no existe, usa un fallback (para tu prueba local temporal)
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except Exception:
-        API_KEY = "" # Poné acá tu clave provisoria para probar en tu PC
+        API_KEY = "TU_API_KEY_REAL" # Fallback local
         
     client = genai.Client(api_key=API_KEY)
     fecha_hoy = datetime.now().strftime("%d.%m.%Y")
@@ -117,7 +68,37 @@ def procesar_con_gemini(texto_usuario: str, cliente_seleccionado: str) -> dict:
     return json.loads(response.text)
 
 # =====================================================================
-# 3. CONTROL DE FLUJO DE AUTENTICACIÓN
+# 3. FUNCIÓN DE VALIDACIÓN CON LA BASE DE DATOS (RENDER)
+# =====================================================================
+def validar_credenciales_db(usuario, contrasena):
+    """Consulta la base de datos en la nube para verificar el acceso."""
+    try:
+        conn = psycopg2.connect(
+            host=st.secrets["DB_HOST"],
+            database=st.secrets["DB_NAME"],
+            user=st.secrets["DB_USER"],
+            password=st.secrets["DB_PASSWORD"],
+            port=st.secrets["DB_PORT"]
+        )
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT contrasena, empresa FROM usuarios_sap WHERE usuario = %s", 
+            (usuario,)
+        )
+        registro = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        # Validamos si el registro existe y si la contraseña coincide
+        if registro and registro[0] == contrasena:
+            return {"valido": True, "empresa": registro[1]}
+            
+    except Exception as e:
+        st.error(f"Error de conexión con la base de datos: {e}")
+    return {"valido": False, "empresa": None}
+
+# =====================================================================
+# 4. CONTROL DE FLUJO DE INTERFAZ Y PANTALLAS
 # =====================================================================
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
@@ -125,29 +106,36 @@ if "autenticado" not in st.session_state:
 # --- PANTALLA 1: LOGIN DE USUARIO ---
 if not st.session_state["autenticado"]:
     st.markdown("<br><br>", unsafe_allow_html=True)
-    col_login, _ = st.columns([1, 2]) # Centramos levemente a la izquierda
+    col_login, _ = st.columns([1, 1])
     
     with col_login:
         st.subheader("🔑 Acceso al Portal SAP MVP")
-        st.info("Credenciales demo válidas:\n- Usuario: `carlos.logistica` / Clave: `sap123` \n- Usuario: `admin` / Clave: `admin`")
+        st.markdown("Ingrese las credenciales registradas mediante la app de administración.")
         
         user_input = st.text_input("Nombre de Usuario")
         pass_input = st.text_input("Contraseña", type="password")
         boton_login = st.button("Iniciar Sesión", use_container_width=True)
         
+        # Evaluamos el flujo del login ÚNICAMENTE después de que el botón es declarado
         if boton_login:
-            if user_input in USUARIOS_MOCK and USUARIOS_MOCK[user_input][0] == pass_input:
-                st.session_state["autenticado"] = True
-                st.session_state["usuario_actual"] = user_input
-                st.session_state["empresa_actual"] = USUARIOS_MOCK[user_input][1]
-                st.rerun() # Recarga la app para pasar al panel
+            if not user_input or not pass_input:
+                st.warning("Por favor complete ambos campos.")
             else:
-                st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
+                with st.spinner("Autenticando en la base de datos cloud..."):
+                    resultado_auth = validar_credenciales_db(user_input, pass_input)
+                    
+                    if resultado_auth["valido"]:
+                        st.session_state["autenticado"] = True
+                        st.session_state["usuario_actual"] = user_input
+                        st.session_state["empresa_actual"] = resultado_auth["empresa"]
+                        st.rerun()
+                    else:
+                        st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
 
-# --- PANTALLA 2: PANEL DEL CLASIFICADOR (SOLO ACCESIBLE LOGUEADO) ---
+# --- PANTALLA 2: PANEL DEL CLASIFICADOR (ACCESO SEGURO) ---
 else:
     # Encabezado superior con botón de cierre de sesión
-    col_titulo, col_logout = st.columns([5, 1])
+    col_titulo, col_logout = st.columns([4, 1])
     with col_titulo:
         st.title("⚙️ Mesa de Ayuda Inteligente SAP — Prototipo MVP")
         st.markdown(f"Conectado como: **{st.session_state['usuario_actual']}** | Empresa asignada: **{st.session_state['empresa_actual']}**")
@@ -155,6 +143,8 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state["autenticado"] = False
+            if "resultado" in st.session_state:
+                del st.session_state["resultado"]
             st.rerun()
             
     st.divider()
@@ -164,14 +154,12 @@ else:
 
     with col_izquierda:
         st.subheader("📥 Ingreso del Incidente")
-        
-        # El campo cliente ya no es un selector suelto, se autocompleta con los datos de la sesión segura
         st.text_input("Cliente Autenticado", value=st.session_state["empresa_actual"], disabled=True)
         
         input_problema = st.text_area(
             "Describa el problema que presenta en SAP:",
             height=180,
-            placeholder="Describa aquí el error transaccional de forma libre..."
+            placeholder="Escriba aquí el error transaccional de forma libre..."
         )
         
         boton_procesar = st.button("🚀 Analizar y Clasificar Incidente", use_container_width=True)
