@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import streamlit as st
 import json
 from datetime import datetime
@@ -232,8 +233,8 @@ else:
         
         boton_procesar = st.button("🚀 Analizar y Clasificar Incidente", use_container_width=True)
 
-    with col_derecha:
-        tab_actual, tab_json, tab_historial = st.tabs([
+        with col_derecha:
+         tab_actual, tab_json, tab_historial = st.tabs([
             "📋 Último Análisis", 
             "💻 JSON Estructurado", 
             "⏳ Historial de Tickets"
@@ -245,4 +246,22 @@ else:
             else:
                 with st.spinner("Gemini analizando impacto y estructura técnica..."):
                     try:
+                        # Realiza la consulta a la Inteligencia Artificial
                         resultado_dict = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
+                        
+                        # Guarda el registro en la base de datos de Render
+                        ticket_id = guardar_ticket_db(st.session_state["usuario_actual"], st.session_state["empresa_actual"], resultado_dict)
+                        
+                        if ticket_id:
+                            # Inyecta el ID autoincremental en el JSON principal
+                            resultado_dict = {"numero_ticket": ticket_id, **resultado_dict}
+                            st.session_state["resultado"] = resultado_dict
+                            st.toast(f"💾 Ticket #{ticket_id} guardado en el historial de forma exitosa.")
+                        else:
+                            st.session_state["resultado"] = resultado_dict
+                            
+                    except Exception as e:
+                        # ESTA ES LA PARTE QUE FALTABA PARA CERRAR EL TRY
+                        st.error(f"Error en procesamiento o guardado: {e}")
+
+ 
