@@ -27,7 +27,7 @@ class SAPIncidentSchema(BaseModel):
     )
     modulo_sugerido: str = Field(description="Módulo SAP detectado (MM, SD, FI, CO, PP, ABAP, Desconocido).")
     informacion_adicional_requerida: Optional[str] = Field(
-        description="Pregunta aclaratoria si el módulo es ambiguo. Si está todo claro, dejar vacío."
+        description="Pregunta aclaratoria si el módulo es ambiguo o requiere datos adicionales del usuario. Si está todo claro, dejar vacío."
     )
 
 # =====================================================================
@@ -202,7 +202,7 @@ if not st.session_state["autenticado"]:
 
 # --- PANTALLA 2: PANEL DEL CLASIFICADOR E HISTORIAL ---
 else:
-    col_titulo, col_logout = st.columns([4, 1])
+    col_titulo, col_logout = st.columns(2)
     with col_titulo:
         st.title("⚙️ Mesa de Ayuda Inteligente SAP — Prototipo MVP")
         st.markdown(f"Conectado como: **{st.session_state['usuario_actual']}** | Empresa asignada: **{st.session_state['empresa_actual']}**")
@@ -245,6 +245,3 @@ else:
                     try:
                         # 1. Procesa con Inteligencia Artificial
                         resultado_dict = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
-                        
-
-     
