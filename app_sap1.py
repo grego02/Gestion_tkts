@@ -128,7 +128,7 @@ def guardar_ticket_db(usuario, empresa, ticket_dict):
         cursor.execute("""
             INSERT INTO tickets_sap (usuario, empresa, fecha, asunto, modulo, prioridad, detalle, info_adicional)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
+            RETURNING id;
         """, (
             usuario,
             empresa,
@@ -140,14 +140,16 @@ def guardar_ticket_db(usuario, empresa, ticket_dict):
             ticket_dict.get("informacion_adicional_requerida")
         ))
         
-        nuevo_id = cursor.fetchone()[0]
+        nuevo_id_row = cursor.fetchone()
         conn.commit()
         cursor.close()
         conn.close()
-        return nuevo_id
+        
+        if nuevo_id_row:
+            return nuevo_id_row[0]
     except Exception as e:
         st.error(f"Error al guardar el ticket en el historial: {e}")
-        return None
+    return None
 
 def obtener_historial_tickets_db(usuario):
     """Recupera únicamente los incidentes creados por el usuario logueado."""
@@ -166,7 +168,7 @@ def obtener_historial_tickets_db(usuario):
         return registros
     except Exception as e:
         st.error(f"Error al leer el historial: {e}")
-        return []
+    return []
 
 # =====================================================================
 # 4. CONTROL DE FLUJO DE INTERFAZ Y PANTALLAS
@@ -219,7 +221,7 @@ else:
     col_izquierda, col_derecha = st.columns(2, gap="large")
 
     with col_izquierda:
-        st.subheader("📥 Ingreso del Incidentes")
+        st.subheader("📥 Ingreso del Incidente")
         st.text_input("Cliente Autenticado", value=st.session_state["empresa_actual"], disabled=True)
         
         input_problema = st.text_area(
@@ -244,4 +246,3 @@ else:
                 with st.spinner("Gemini analizando impacto y estructura técnica..."):
                     try:
                         # 1. Procesa con Inteligencia Artificial
-                        resultado_dict = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
