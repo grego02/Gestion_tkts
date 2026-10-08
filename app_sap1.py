@@ -233,35 +233,97 @@ else:
         
         boton_procesar = st.button("🚀 Analizar y Clasificar Incidente", use_container_width=True)
 
-        with col_derecha:
-         tab_actual, tab_json, tab_historial = st.tabs([
+           with col_derecha:
+        # 1. CREAMOS LAS PESTAÑAS (Siempre visibles en la columna derecha)
+        tab_actual, tab_json, tab_historial = st.tabs([
             "📋 Último Análisis", 
             "💻 JSON Estructurado", 
             "⏳ Historial de Tickets"
         ])
         
+        # 2. CAPTURA DEL PROCESAMIENTO (Ocurre al hacer clic en el botón)
         if boton_procesar:
             if not input_problema.strip():
                 st.warning("Por favor, ingrese el detalle del incidente antes de procesar.")
             else:
                 with st.spinner("Gemini analizando impacto y estructura técnica..."):
                     try:
-                        # Realiza la consulta a la Inteligencia Artificial
+                        # Ejecuta la consulta a la Inteligencia Artificial
                         resultado_dict = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
                         
-                        # Guarda el registro en la base de datos de Render
+                        # Guarda el registro en la base de datos de Render y obtiene el ID correlativo
                         ticket_id = guardar_ticket_db(st.session_state["usuario_actual"], st.session_state["empresa_actual"], resultado_dict)
                         
                         if ticket_id:
-                            # Inyecta el ID autoincremental en el JSON principal
-                            resultado_dict = {"numero_ticket": ticket_id, **resultado_dict}
+                            # Si la DB devolvió una tupla/lista, extraemos el primer elemento numérico
+                            id_numerico = ticket_id[0] if isinstance(ticket_id, (tuple, list)) else ticket_id
+                            
+                            # Inyectamos el ID numérico real en la cabecera del JSON
+                            resultado_dict = {"numero_ticket": id_numerico, **resultado_dict}
                             st.session_state["resultado"] = resultado_dict
-                            st.toast(f"💾 Ticket #{ticket_id} guardado en el historial de forma exitosa.")
+                            st.toast(f"💾 Ticket #{id_numerico} guardado en el historial de forma exitosa.")
                         else:
                             st.session_state["resultado"] = resultado_dict
+                            st.toast("⚠️ Ticket procesado pero no se pudo guardar en el historial.")
+                            
+                        # Forzamos a Streamlit a redibujar la pantalla para que las pestañas lean los datos nuevos
+                        st.rerun()
                             
                     except Exception as e:
-                        # ESTA ES LA PARTE QUE FALTABA PARA CERRAR EL TRY
                         st.error(f"Error en procesamiento o guardado: {e}")
+        
+        # 3. RENDERIZADO DE LA PESTAÑA 1 (Último Análisis)
+        with tab_actual:
+            if "resultado" in st.session_state:
+                res = st.session_state["resultado"]
+                
+                # Tarjetas métricas superiores
+                c1, c2, c3 = st.columns(3)
+                prioridad_emoji = "🚨" if "Alta" in res.get('prioridad', 'Normal') else "ℹ️"
+                c1.metric(label="Número Ticket", value=f"#{res.get('numero_ticket', 'N/A')}")
+                c2.metric(label="Módulo SAP", value=res.get('modulo_sugerido', 'N/A').upper())
+                c3.metric(label=f"{prioridad_emoji} Prioridad", value=res.get('prioridad', 'Normal'))
+                
+                st.markdown(f"**📅 Fecha Registro:** {res.get('fecha')}")
+                st.markdown(f"**📌 Asunto:** {res.get('asunto')}")
+                
+                # Alerta visual si Gemini detectó falta de contexto
+                if res.get('informacion_adicional_requerida'):
+                    st.error(f"⚠️ **Información Adicional Requerida:** {res.get('informacion_adicional_requerida')}")
+                else:
+                    st.success("✅ Datos completos: No se requiere información adicional.")
+                    
+                st.info(f"**📝 Detalle enviado:**\n\n{res.get('detalle')}")
+            else:
+                st.info("No se registran análisis en esta sesión. Cargue un incidente a la izquierda.")
+                
+        # 4. RENDERIZADO DE LA PESTAÑA 2 (JSON Puro)
+        with tab_json:
+            if "resultado" in st.session_state:
+                st.markdown("Este objeto JSON está formateado de forma nativa para alimentar tus sistemas externos:")
+                st.json(st.session_state["resultado"])
+            else:
+                st.info("El objeto JSON aparecerá aquí tras procesar el incidente.")
+                
+        # 5. RENDERIZADO DE LA PESTAÑA 3 (Historial desde Render)
+        with tab_historial:
+            st.markdown("A continuación se listan los incidentes históricos registrados por tu cuenta:")
+            
+            # Consultamos directamente a Render para traer los datos más frescos de este usuario
+            tickets_guardados = obtener_historial_tickets_db(st.session_state["usuario_actual"])
+            
+            if not tickets_guardados:
+                st.warning("Aún no has registrado ningún ticket en la base de datos.")
+            else:
+                for t_fecha, t_asunto, t_modulo, t_prioridad, t_detalle, t_info, t_id in tickets_guardados:
+                    # Semáforo de color dinámico según la prioridad histórica
+                    color_alerta = "🔴" if "Muy Alta" in t_prioridad else ("🟠" if "Alta" in t_prioridad else "🟢")
+                    
+                    with st.expander(f"{color_alerta} Ticket #{t_id} | {t_fecha} — {t_asunto}"):
+                        st.markdown(f"**Módulo SAP:** `{t_modulo.upper()}` | **Prioridad:** `{t_prioridad}`")
+                        st.markdown(f"**Detalle Histórico:** {t_detalle}")
+                        if t_info:
+                            st.markdown(f"❌ **Requerimiento pendiente:** *{t_info}*")
+                        else:
+                            st.markdown("✨ *Procesado con éxito completo sin datos faltantes.*")
 
- 
