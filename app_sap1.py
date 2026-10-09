@@ -199,6 +199,7 @@ if not st.session_state["autenticado"]:
                         st.session_state["usuario_actual"] = user_input
                         st.session_state["empresa_actual"] = resultado_auth["empresa"]
                         inicializar_tabla_tickets()
+                        from crear_maestro import inicializar_maestro_materiales; inicializar_maestro_materiales()
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
