@@ -170,7 +170,24 @@ def obtener_historial_tickets_db(usuario):
     except Exception as e:
         st.error(f"Error al leer el historial: {e}")
     return []
-
+def obtener_listado_mm60_db():
+    """Simula la transacción MM60 recuperando todos los materiales del maestro."""
+    try:
+        conn = conectar_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT matnr, maktx, matkl, mtart, meins, bklas, fecha_creacion 
+            FROM maestro_materiales_sap 
+            ORDER BY matnr DESC
+        """)
+        registros = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return registros
+    except Exception as e:
+        st.error(f"Error al recuperar el reporte MM60: {e}")
+        return []
+   
 # =====================================================================
 # 4. CONTROL DE FLUJO DE INTERFAZ Y PANTALLAS
 # =====================================================================
