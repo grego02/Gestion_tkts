@@ -160,15 +160,16 @@ def obtener_historial_tickets_db(usuario):
             SELECT fecha, asunto, modulo, prioridad, detalle, info_adicional, id 
             FROM tickets_sap 
             WHERE usuario = %s 
-            ORDER BY id DESC
-        """)
+            ORDER BY id DESC;
+        """, (usuario,))
         registros = cursor.fetchall()
         cursor.close()
         conn.close()
         return registros
     except Exception as e:
         st.error(f"Error al leer el historial: {e}")
-    return []
+        return []
+
 
 # --- FUNCIONES ADICIONALES PARA MAESTRO DE MATERIALES (MM01/MM60) ---
 
