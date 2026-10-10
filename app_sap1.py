@@ -221,169 +221,183 @@ if not st.session_state["autenticado"]:
                     else:
                         st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
 
-# --- PANTALLA 2: PANEL DEL CLASIFICADOR E HISTORIAL ---
+# --- PANTALLA 2: SUITE DE APLICACIONES SAP INTELIGENTES ---
 else:
-    col_titulo, col_logout = st.columns(2)
-    with col_titulo:
-        st.title("⚙️ Mesa de Ayuda Inteligente SAP — Prototipo MVP")
-        st.markdown(f"Conectado como: **{st.session_state['usuario_actual']}** | Empresa asignada: **{st.session_state['empresa_actual']}**")
-    with col_logout:
-        st.markdown("<br>", unsafe_allow_html=True)
+    # =====================================================================
+    # 4.A BARRA LATERAL DE NAVEGACIÓN (SIDEBAR)
+    # =====================================================================
+    with st.sidebar:
+        st.markdown("### 🏢 Menú del Portal")
+        st.markdown(f"**Usuario:** `{st.session_state['usuario_actual']}`\n**Empresa:** `{st.session_state['empresa_actual']}`")
+        st.divider()
+        
+        # El listbox selector para alternar entre los MVPs vendedores
+        modulo_seleccionado = st.selectbox(
+            "Seleccione la aplicación SAP:",
+            ["📋 Mesa de Ayuda Inteligente", "⚙️ Gestor de Materiales (MM01 / MM60)"]
+        )
+        
+        st.markdown("<br><br>" * 3, unsafe_allow_html=True)
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state["autenticado"] = False
             if "resultado" in st.session_state:
                 del st.session_state["resultado"]
+            if "analisis_temporal" in st.session_state:
+                del st.session_state["analisis_temporal"]
             st.rerun()
+
+    # Encabezado Principal del Panel Central
+    st.title("⚙️ SAP AI Suite — Prototipo MVP Cloud")
+    st.divider()
+
+    # =====================================================================
+    # MODULO SELECTED 1: MESA DE AYUDA INTELIGENTE
+    # =====================================================================
+    if modulo_seleccionado == "📋 Mesa de Ayuda Inteligente":
+        # Aseguramos que existan las variables para controlar el flujo de confirmación de tickets
+        if "analisis_temporal" not in st.session_state:
+            st.session_state["analisis_temporal"] = None
+        if "ticket_guardado_exitoso" not in st.session_state:
+            st.session_state["ticket_guardado_exitoso"] = False
+
+        col_izquierda, col_derecha = st.columns(2, gap="large")
+
+        with col_izquierda:
+            st.subheader("📥 Ingreso del Incidente")
+            st.text_input("Cliente Autenticado", value=st.session_state["empresa_actual"], disabled=True)
             
-        st.divider()
-
-    # =====================================================================
-    # 4. CONTROL DE ESTADOS DE SESIÓN ADICIONALES
-    # =====================================================================
-    # Aseguramos que existan las variables para controlar el flujo de confirmación
-    if "analisis_temporal" not in st.session_state:
-        st.session_state["analisis_temporal"] = None
-    if "ticket_guardado_exitoso" not in st.session_state:
-        st.session_state["ticket_guardado_exitoso"] = False
-
-    # Estructura de la pantalla en dos columnas
-    col_izquierda, col_derecha = st.columns(2, gap="large")
-
-    with col_izquierda:
-        st.subheader("📥 Ingreso del Incidente")
-        st.text_input("Cliente Autenticado", value=st.session_state["empresa_actual"], disabled=True)
-        
-        # El cuadro de texto se bloquea si el ticket ya fue confirmado en la DB para obligar a usar "Nuevo Ticket"
-        input_problema = st.text_area(
-            "Describa el problema que presenta en SAP:",
-            height=180,
-            placeholder="Escriba aquí el error transaccional de forma libre...",
-            disabled=st.session_state["ticket_guardado_exitoso"]
-        )
-        
-        # Fila de botones dinámicos según el estado del flujo
-        c_btn1, c_btn2 = st.columns(2)
-        
-        with c_btn1:
-            # Botón de análisis: Solo analiza y sobreescribe la pantalla (No guarda en DB)
-            boton_analizar = st.button(
-                "🔍 Analizar Incidente", 
-                use_container_width=True, 
+            input_problema = st.text_area(
+                "Describa el problema que presenta en SAP:",
+                height=180,
+                placeholder="Escriba aquí el error transaccional de forma libre...",
                 disabled=st.session_state["ticket_guardado_exitoso"]
             )
             
-        with c_btn2:
-            # Botón para resetear todo el formulario e iniciar un caso desde cero
-            if st.button("🆕 Nuevo Ticket", use_container_width=True):
-                st.session_state["analisis_temporal"] = None
-                st.session_state["ticket_guardado_exitoso"] = False
-                if "resultado" in st.session_state:
-                    del st.session_state["resultado"]
-                st.links = [] # Limpieza visual opcional
-                st.rerun()
+            c_btn1, c_btn2 = st.columns(2)
+            with c_btn1:
+                boton_analizar = st.button(
+                    "🔍 Analizar Incidente", 
+                    use_container_width=True, 
+                    disabled=st.session_state["ticket_guardado_exitoso"]
+                )
+            with c_btn2:
+                if st.button("🆕 Nuevo Ticket", use_container_width=True):
+                    st.session_state["analisis_temporal"] = None
+                    st.session_state["ticket_guardado_exitoso"] = False
+                    if "resultado" in st.session_state:
+                        del st.session_state["resultado"]
+                    st.rerun()
 
-        # LOGICA DEL BOTÓN ANALIZAR: Invoca a la IA pero NO impacta la base de datos
-        if boton_analizar:
-            if not input_problema.strip():
-                st.warning("Por favor, ingrese el detalle del incidente antes de procesar.")
-            else:
-                with st.spinner("Gemini analizando impacto y estructura técnica..."):
-                    try:
-                        # Guardamos el resultado de forma provisoria en la sesión
-                        resultado_ia = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
-                        # Como todavía no está en DB, le ponemos un ID temporal de previsualización
-                        resultado_ia["numero_ticket"] = "PENDIENTE" 
-                        st.session_state["analisis_temporal"] = resultado_ia
-                        st.session_state["ticket_guardado_exitoso"] = False
-                    except Exception as e:
-                        st.error(f"Error en el análisis cognitivo: {e}")
-
-        st.divider()
-        
-        # SECCIÓN DE CONFIRMACIÓN: Aparece solo si hay un análisis en pantalla y no ha sido guardado
-        if st.session_state["analisis_temporal"] and not st.session_state["ticket_guardado_exitoso"]:
-            st.markdown("### 🛠️ ¿El análisis es correcto?")
-            st.markdown("Revisa el diagnóstico de la derecha. Si estás de acuerdo o ya corregiste los datos, confirma para registrarlo formalmente en la Mesa de Ayuda.")
-            
-            if st.button("✅ Confirmar y Registrar Ticket", use_container_width=True, type="primary"):
-                with st.spinner("Persistiendo registro en la base de datos cloud..."):
-                    ticket_id = guardar_ticket_db(
-                        st.session_state["usuario_actual"], 
-                        st.session_state["empresa_actual"], 
-                        st.session_state["analisis_temporal"]
-                    )
-                    if ticket_id:
-                        # Extraemos el entero si la DB devuelve una tupla (ej: (5,))
-                        id_real = ticket_id[0] if isinstance(ticket_id, (tuple, list)) else ticket_id
-                        
-                        # Actualizamos el JSON con su número definitivo de trazabilidad
-                        st.session_state["analisis_temporal"]["numero_ticket"] = id_real
-                        st.session_state["resultado"] = st.session_state["analisis_temporal"]
-                        st.session_state["ticket_guardado_exitoso"] = True
-                        st.toast(f"💾 Ticket #{id_real} guardado con éxito completo.")
-                        st.rerun()
-                    else:
-                        st.error("No se pudo guardar el registro. Verifique la conexión con Render.")
-
-    with col_derecha:
-        # Pestañas de visualización de datos
-        tab_actual, tab_json, tab_historial = st.tabs([
-            "📋 Último Análisis", 
-            "💻 JSON Estructurado", 
-            "⏳ Historial de Tickets"
-        ])
-        
-        # Determinamos qué datos mostrar en las pestañas (el análisis temporal de la sesión o el confirmado)
-        datos_en_pantalla = st.session_state["analisis_temporal"]
-        
-        with tab_actual:
-            if datos_en_pantalla:
-                c1, c2, c3 = st.columns(3)
-                prioridad_emoji = "🚨" if "Alta" in datos_en_pantalla.get('prioridad', 'Normal') else "ℹ️"
-                
-                # Muestra "PENDIENTE" si es solo análisis, o el número real si ya fue confirmado
-                num_tkt = datos_en_pantalla.get('numero_ticket')
-                value_tkt = f"#{num_tkt}" if num_tkt != "PENDIENTE" else "PENDIENTE"
-                
-                c1.metric(label="Estado / Número", value=value_tkt)
-                c2.metric(label="Módulo SAP", value=datos_en_pantalla.get('modulo_sugerido', 'N/A').upper())
-                c3.metric(label=f"{prioridad_emoji} Prioridad", value=datos_en_pantalla.get('prioridad', 'Normal'))
-                
-                st.markdown(f"**📅 Fecha Registro:** {datos_en_pantalla.get('fecha')}")
-                st.markdown(f"**📌 Asunto:** {datos_en_pantalla.get('asunto')}")
-                
-                if datos_en_pantalla.get('informacion_adicional_requerida'):
-                    st.error(f"⚠️ **Información Adicional Requerida:** {datos_en_pantalla.get('informacion_adicional_requerida')}")
+            if boton_analizar:
+                if not input_problema.strip():
+                    st.warning("Por favor, ingrese el detalle del incidente antes de procesar.")
                 else:
-                    st.success("✅ Datos completos: No se requiere información adicional.")
-                st.info(f"**📝 Detalle enviado:**\n\n{datos_en_pantalla.get('detalle')}")
-            else:
-                st.info("No se registran análisis en esta sesión. Cargue un incidente a la izquierda.")
-                
-        with tab_json:
-            if datos_en_pantalla:
-                st.markdown("Este objeto JSON está formateado de forma nativa para alimentar tus sistemas externos:")
-                st.json(datos_en_pantalla)
-            else:
-                st.info("El objeto JSON aparecerá aquí tras procesar el incidente.")
-                
-        with tab_historial:
-            st.markdown("A continuación se listan los incidentes históricos registrados por tu cuenta:")
-            tickets_guardados = obtener_historial_tickets_db(st.session_state["usuario_actual"])
+                    with st.spinner("Gemini analizando impacto y estructura técnica..."):
+                        try:
+                            resultado_ia = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
+                            resultado_ia["numero_ticket"] = "PENDIENTE" 
+                            st.session_state["analisis_temporal"] = resultado_ia
+                            st.session_state["ticket_guardado_exitoso"] = False
+                        except Exception as e:
+                            st.error(f"Error en el análisis cognitivo: {e}")
+
+            st.divider()
             
-            if not tickets_guardados:
-                st.warning("Aún no has registrado ningún ticket en la base de datos.")
-            else:
-                for t_fecha, t_asunto, t_modulo, t_prioridad, t_detalle, t_info, t_id in tickets_guardados:
-                    color_alerta = "🔴" if "Muy Alta" in t_prioridad else ("🟠" if "Alta" in t_prioridad else "🟢")
-                    with st.expander(f"{color_alerta} Ticket #{t_id} | {t_fecha} — {t_asunto}"):
-                        st.markdown(f"**Módulo SAP:** `{t_modulo.upper()}` | **Prioridad:** `{t_prioridad}`")
-                        st.markdown(f"**Detalle Histórico:** {t_detalle}")
-                        if t_info:
-                            st.markdown(f"❌ **Requerimiento pendiente:** *{t_info}*")
+            if st.session_state["analisis_temporal"] and not st.session_state["ticket_guardado_exitoso"]:
+                st.markdown("### 🛠️ ¿El análisis es correcto?")
+                st.markdown("Revisa el diagnóstico de la derecha. Si estás de acuerdo o ya corregiste los datos, confirma para registrarlo formalmente.")
+                
+                if st.button("✅ Confirmar y Registrar Ticket", use_container_width=True, type="primary"):
+                    with st.spinner("Persistiendo registro en Render..."):
+                        ticket_id = guardar_ticket_db(
+                            st.session_state["usuario_actual"], 
+                            st.session_state["empresa_actual"], 
+                            st.session_state["analisis_temporal"]
+                        )
+                        if ticket_id:
+                            id_real = ticket_id[0] if isinstance(ticket_id, (tuple, list)) else ticket_id
+                            st.session_state["analisis_temporal"]["numero_ticket"] = id_real
+                            st.session_state["resultado"] = st.session_state["analisis_temporal"]
+                            st.session_state["ticket_guardado_exitoso"] = True
+                            st.toast(f"💾 Ticket #{id_real} guardado con éxito completo.")
+                            st.rerun()
                         else:
-                            st.markdown("✨ *Procesado con éxito completo sin datos faltantes.*")
+                            st.error("No se pudo guardar el registro en Render.")
 
+        with col_derecha:
+            tab_actual, tab_json, tab_historial = st.tabs([
+                "📋 Último Análisis", 
+                "💻 JSON Estructurado", 
+                "⏳ Historial de Tickets"
+            ])
             
+            datos_en_pantalla = st.session_state["analisis_temporal"]
+            
+            with tab_actual:
+                if datos_en_pantalla:
+                    c1, c2, c3 = st.columns(3)
+                    prioridad_emoji = "🚨" if "Alta" in datos_en_pantalla.get('prioridad', 'Normal') else "ℹ️"
+                    num_tkt = datos_en_pantalla.get('numero_ticket')
+                    value_tkt = f"#{num_tkt}" if num_tkt != "PENDIENTE" else "PENDIENTE"
+                    
+                    c1.metric(label="Estado / Número", value=value_tkt)
+                    c2.metric(label="Módulo SAP", value=datos_en_pantalla.get('modulo_sugerido', 'N/A').upper())
+                    c3.metric(label=f"{prioridad_emoji} Prioridad", value=datos_en_pantalla.get('prioridad', 'Normal'))
+                    
+                    st.markdown(f"**📅 Fecha Registro:** {datos_en_pantalla.get('fecha')}")
+                    st.markdown(f"**📌 Asunto:** {datos_en_pantalla.get('asunto')}")
+                    
+                    if datos_en_pantalla.get('informacion_adicional_requerida'):
+                        st.error(f"⚠️ **Información Adicional Requerida:** {datos_en_pantalla.get('informacion_adicional_requerida')}")
+                    else:
+                        st.success("✅ Datos completos: No se requiere información adicional.")
+                    st.info(f"**📝 Detalle enviado:**\n\n{datos_en_pantalla.get('detalle')}")
+                else:
+                    st.info("No se registran análisis en esta sesión. Cargue un incidente a la izquierda.")
+                    
+            with tab_json:
+                if datos_en_pantalla:
+                    st.json(datos_en_pantalla)
+                else:
+                    st.info("El objeto JSON aparecerá aquí tras procesar el incidente.")
+                    
+            with tab_historial:
+                st.markdown("A continuación se listan los incidentes históricos registrados por tu cuenta:")
+                tickets_guardados = obtener_historial_tickets_db(st.session_state["usuario_actual"])
+                
+                if not tickets_guardados:
+                    st.warning("Aún no has registrado ningún ticket en la base de datos.")
+                else:
+                    for t_fecha, t_asunto, t_modulo, t_prioridad, t_detalle, t_info, t_id in tickets_guardados:
+                        color_alerta = "🔴" if "Muy Alta" in t_prioridad else ("🟠" if "Alta" in t_prioridad else "🟢")
+                        with st.expander(f"{color_alerta} Ticket #{t_id} | {t_fecha} — {t_asunto}"):
+                            st.markdown(f"**Módulo SAP:** `{t_modulo.upper()}` | **Prioridad:** `{t_prioridad}`")
+                            st.markdown(f"**Detalle Histórico:** {t_detalle}")
+                            if t_info:
+                                st.markdown(f"❌ **Requerimiento pendiente:** *{t_info}*")
+                            else:
+                                st.markdown("✨ *Procesado con éxito completo sin datos faltantes.*")
 
-          
+    # =====================================================================
+    # MODULO SELECTED 2: GESTOR DE MATERIALES (MM01 / MM60)
+    # =====================================================================
+    else:
+        st.subheader("📦 Hub de Gobernanza de Datos Maestros MM")
+        st.markdown("Este entorno simula el ciclo de alta guiado por IA y la auditoría del catálogo central de materiales.")
+        
+        st.markdown("---")
+        st.markdown("### 📥 Solicitud de Carga Cognitiva (Simulación MM01)")
+        st.info("Próximamente: Aquí integraremos el prompt de ingeniería con Gemini y RAG para clasificar tus materiales sin errores.")
+        
+        input_material_libre = st.text_input("Describa el material que desea crear (Ej: Bulón de acero de media pulgada):")
+        st.button("🔍 Validar y Precalificar Material", disabled=True)
+        
+        st.markdown("---")
+        st.markdown("### 📊 Índice de Materiales Activos (Simulación MM60)")
+        st.markdown("Listado en tiempo real directo desde la base de datos centralizada de Render:")
+        
+        materiales_totales = obtener_listado_mm60_db()
+        
+        if not materiales_totales:
+            st.warning("No se registran materiales cargados en el maestro actualmente.")
+
