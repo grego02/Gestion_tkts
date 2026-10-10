@@ -173,15 +173,17 @@ def obtener_historial_tickets_db(usuario):
 # --- FUNCIONES ADICIONALES PARA MAESTRO DE MATERIALES (MM01/MM60) ---
 
 def inicializar_maestro_materiales():
-    """Crea la tabla e inyecta los repuestos de prueba si no existen en Render."""
+    """Crea la tabla e inyecta los repuestos de prueba ampliando el VARCHAR para evitar errores."""
     try:
         conn = conectar_db()
         cursor = conn.cursor()
+        
+        # 1. Creamos la tabla con la columna matkl expandida a 20 caracteres
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS maestro_materiales_sap (
                 matnr SERIAL PRIMARY KEY,
                 maktx VARCHAR(40) NOT NULL,
-                matkl VARCHAR(9) NOT NULL,
+                matkl VARCHAR(20) NOT NULL,
                 mtart VARCHAR(4) NOT NULL,
                 meins VARCHAR(3) NOT NULL,
                 bklas VARCHAR(4) NOT NULL,
@@ -190,6 +192,11 @@ def inicializar_maestro_materiales():
         """)
         conn.commit()
         
+        # 2. Por seguridad, alteramos la columna por si la tabla ya existía con la estructura vieja de 9 caracteres
+        cursor.execute("ALTER TABLE maestro_materiales_sap ALTER COLUMN matkl TYPE VARCHAR(20);")
+        conn.commit()
+        
+        # 3. Verificamos si requiere los registros iniciales de prueba
         cursor.execute("SELECT COUNT(*) FROM maestro_materiales_sap;")
         count = cursor.fetchone()
         
@@ -231,7 +238,7 @@ def obtener_listado_mm60_db():
         return registros
     except Exception as e:
         st.error(f"Error al recuperar el reporte MM60: {e}")
-        return []
+        return
 
 # =====================================================================
 # 4. CONTROL DE FLUJO DE INTERFAZ Y PANTALLAS
