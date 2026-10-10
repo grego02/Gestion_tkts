@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
+  # -*- coding: utf-8 -*-
 import streamlit as st
 import json
 from datetime import datetime
@@ -16,7 +15,7 @@ st.set_page_config(
 )
 
 # =====================================================================
-# 1. ESQUEMA PYDANTIC PARA GEMINI
+# 1. ESQUEMA PYDANTIC PARA GEMINI (INCIDENTES)
 # =====================================================================
 class SAPIncidentSchema(BaseModel):
     fecha: str = Field(description="Fecha actual en formato DD.MM.YYYY.")
@@ -162,7 +161,7 @@ def obtener_historial_tickets_db(usuario):
             FROM tickets_sap 
             WHERE usuario = %s 
             ORDER BY id DESC
-        """, (usuario,))
+        """)
         registros = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -170,9 +169,55 @@ def obtener_historial_tickets_db(usuario):
     except Exception as e:
         st.error(f"Error al leer el historial: {e}")
     return []
-def obtener_listado_mm60_db():
-    """Simula la transacción MM60 recuperando todos los materiales del maestro."""
+
+# --- FUNCIONES ADICIONALES PARA MAESTRO DE MATERIALES (MM01/MM60) ---
+
+def inicializar_maestro_materiales():
+    """Crea la tabla e inyecta los repuestos de prueba si no existen en Render."""
     try:
+        conn = conectar_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS maestro_materiales_sap (
+                matnr SERIAL PRIMARY KEY,
+                maktx VARCHAR(40) NOT NULL,
+                matkl VARCHAR(9) NOT NULL,
+                mtart VARCHAR(4) NOT NULL,
+                meins VARCHAR(3) NOT NULL,
+                bklas VARCHAR(4) NOT NULL,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM maestro_materiales_sap;")
+        count = cursor.fetchone()
+        
+        if count and count[0] == 0:
+            materiales_prueba = [
+                ("RODAMIENTO RIGID BOLAS SKF 6204", "SELE-RODA", "ERSA", "UN", "3000"),
+                ("RODAMIENTO RIGID BOLAS SKF 6308 BLIND", "SELE-RODA", "ERSA", "UN", "3000"),
+                ("BULON ACERO HEXAGONAL 1/2 X 2 ZINC", "SMEC-BULON", "ROH", "UN", "3000"),
+                ("VALVULA ESFERICA BRONCE 1 PASO TOTAL", "SHID-VALV", "ERSA", "UN", "3000"),
+                ("CABLE SINTENAX SUBTERRANEO 4X6 MM2", "SELE-CAB", "ROH", "M", "3000"),
+                ("CABLE UNIPOLAR FRAL 2.5 MM2 ROJO", "SELE-CAB", "ROH", "M", "3000"),
+                ("RODAMIENTO RODILLOS OSCILANTES TIMKEN", "SELE-RODA", "ERSA", "UN", "3000")
+            ]
+            cursor.executemany("""
+                INSERT INTO maestro_materiales_sap (maktx, matkl, mtart, meins, bklas)
+                VALUES (%s, %s, %s, %s, %s);
+            """, materiales_prueba)
+            conn.commit()
+            
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Error al inicializar maestro de materiales: {e}")
+
+def obtener_listado_mm60_db():
+    """Simula la MM60 trayendo todo el catálogo activo."""
+    try:
+        inicializar_maestro_materiales()
         conn = conectar_db()
         cursor = conn.cursor()
         cursor.execute("""
@@ -187,7 +232,7 @@ def obtener_listado_mm60_db():
     except Exception as e:
         st.error(f"Error al recuperar el reporte MM60: {e}")
         return []
-   
+
 # =====================================================================
 # 4. CONTROL DE FLUJO DE INTERFAZ Y PANTALLAS
 # =====================================================================
@@ -216,22 +261,18 @@ if not st.session_state["autenticado"]:
                         st.session_state["usuario_actual"] = user_input
                         st.session_state["empresa_actual"] = resultado_auth["empresa"]
                         inicializar_tabla_tickets()
-                        from crear_maestro import inicializar_maestro_materiales; inicializar_maestro_materiales()
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos. Intente nuevamente.")
 
 # --- PANTALLA 2: SUITE DE APLICACIONES SAP INTELIGENTES ---
 else:
-    # =====================================================================
-    # 4.A BARRA LATERAL DE NAVEGACIÓN (SIDEBAR)
-    # =====================================================================
+    # Barra Lateral de Navegación (Sidebar)
     with st.sidebar:
         st.markdown("### 🏢 Menú del Portal")
         st.markdown(f"**Usuario:** `{st.session_state['usuario_actual']}`\n**Empresa:** `{st.session_state['empresa_actual']}`")
         st.divider()
         
-        # El listbox selector para alternar entre los MVPs vendedores
         modulo_seleccionado = st.selectbox(
             "Seleccione la aplicación SAP:",
             ["📋 Mesa de Ayuda Inteligente", "⚙️ Gestor de Materiales (MM01 / MM60)"]
@@ -251,10 +292,9 @@ else:
     st.divider()
 
     # =====================================================================
-    # MODULO SELECTED 1: MESA DE AYUDA INTELIGENTE
+    # MODULO OPTION 1: MESA DE AYUDA INTELIGENTE
     # =====================================================================
     if modulo_seleccionado == "📋 Mesa de Ayuda Inteligente":
-        # Aseguramos que existan las variables para controlar el flujo de confirmación de tickets
         if "analisis_temporal" not in st.session_state:
             st.session_state["analisis_temporal"] = None
         if "ticket_guardado_exitoso" not in st.session_state:
@@ -292,10 +332,10 @@ else:
                 if not input_problema.strip():
                     st.warning("Por favor, ingrese el detalle del incidente antes de procesar.")
                 else:
-                    with st.spinner("Gemini analizando impacto y estructura técnica..."):
+                    with st.spinner("Gemini analizando impacto..."):
                         try:
                             resultado_ia = procesar_con_gemini(input_problema, st.session_state["empresa_actual"])
-                            resultado_ia["numero_ticket"] = "PENDIENTE" 
+                            resultado_ia["numero_ticket"] = "PENDIENTE"
                             st.session_state["analisis_temporal"] = resultado_ia
                             st.session_state["ticket_guardado_exitoso"] = False
                         except Exception as e:
@@ -305,7 +345,7 @@ else:
             
             if st.session_state["analisis_temporal"] and not st.session_state["ticket_guardado_exitoso"]:
                 st.markdown("### 🛠️ ¿El análisis es correcto?")
-                st.markdown("Revisa el diagnóstico de la derecha. Si estás de acuerdo o ya corregiste los datos, confirma para registrarlo formalmente.")
+                st.markdown("Revisa el diagnóstico de la derecha. Si estás de acuerdo o ya corregiste los datos, confirma.")
                 
                 if st.button("✅ Confirmar y Registrar Ticket", use_container_width=True, type="primary"):
                     with st.spinner("Persistiendo registro en Render..."):
@@ -315,11 +355,10 @@ else:
                             st.session_state["analisis_temporal"]
                         )
                         if ticket_id:
-                            id_real = ticket_id[0] if isinstance(ticket_id, (tuple, list)) else ticket_id
-                            st.session_state["analisis_temporal"]["numero_ticket"] = id_real
+                            st.session_state["analisis_temporal"]["numero_ticket"] = ticket_id
                             st.session_state["resultado"] = st.session_state["analisis_temporal"]
                             st.session_state["ticket_guardado_exitoso"] = True
-                            st.toast(f"💾 Ticket #{id_real} guardado con éxito completo.")
+                            st.toast(f"💾 Ticket #{ticket_id} guardado con éxito.")
                             st.rerun()
                         else:
                             st.error("No se pudo guardar el registro en Render.")
@@ -334,7 +373,7 @@ else:
             datos_en_pantalla = st.session_state["analisis_temporal"]
             
             with tab_actual:
-                if datos_en_pantalla:
+                if datos_en_pantaran := datos_en_pantalla:
                     c1, c2, c3 = st.columns(3)
                     prioridad_emoji = "🚨" if "Alta" in datos_en_pantalla.get('prioridad', 'Normal') else "ℹ️"
                     num_tkt = datos_en_pantalla.get('numero_ticket')
@@ -359,27 +398,25 @@ else:
                 if datos_en_pantalla:
                     st.json(datos_en_pantalla)
                 else:
-                    st.info("El objeto JSON aparecerá aquí tras procesar el incidente.")
+                    st.info("El objeto JSON aparecerá aquí.")
                     
             with tab_historial:
-                st.markdown("A continuación se listan los incidentes históricos registrados por tu cuenta:")
+                st.markdown("Incidentes históricos registrados por tu cuenta:")
                 tickets_guardados = obtener_historial_tickets_db(st.session_state["usuario_actual"])
                 
-                if not tickets_guardados:
-                    st.warning("Aún no has registrado ningún ticket en la base de datos.")
-                else:
+                if tickets_guardados:
                     for t_fecha, t_asunto, t_modulo, t_prioridad, t_detalle, t_info, t_id in tickets_guardados:
                         color_alerta = "🔴" if "Muy Alta" in t_prioridad else ("🟠" if "Alta" in t_prioridad else "🟢")
                         with st.expander(f"{color_alerta} Ticket #{t_id} | {t_fecha} — {t_asunto}"):
                             st.markdown(f"**Módulo SAP:** `{t_modulo.upper()}` | **Prioridad:** `{t_prioridad}`")
                             st.markdown(f"**Detalle Histórico:** {t_detalle}")
                             if t_info:
-                                st.markdown(f"❌ **Requerimiento pendiente:** *{t_info}*")
-                            else:
-                                st.markdown("✨ *Procesado con éxito completo sin datos faltantes.*")
+                                st.markdown(f"❌ **Requerimiento:** *{t_info}*")
+                else:
+                    st.warning("Aún no has registrado ningún ticket.")
 
     # =====================================================================
-    # MODULO SELECTED 2: GESTOR DE MATERIALES (MM01 / MM60)
+    # MODULO OPTION 2: GESTOR DE MATERIALES (MM01 / MM60)
     # =====================================================================
     else:
         st.subheader("📦 Hub de Gobernanza de Datos Maestros MM")
@@ -396,8 +433,29 @@ else:
         st.markdown("### 📊 Índice de Materiales Activos (Simulación MM60)")
         st.markdown("Listado en tiempo real directo desde la base de datos centralizada de Render:")
         
+        # Traemos las filas frescas de la base de datos
         materiales_totales = obtener_listado_mm60_db()
         
-        if not materiales_totales:
+        if materiales_totales:
+            tabla_mm60 = []
+            for matnr, maktx, matkl, mtart, meins, bklas, fecha in materiales_totales:
+                tabla_mm60.append({
+                    "Nº Material (MATNR)": f"00000000{matnr}"[-8:],
+                    "Texto Breve (MAKTX)": maktx,
+                    "Grupo Art. (MATKL)": matkl,
+                    "Tipo Mat. (MTART)": mtart,
+                    "UM Base (MEINS)": meins,
+                    "Cat. Valoración (BKLAS)": bklas,
+                    "Fecha Alta": fecha.strftime("%d/%m/%Y %H:%M") if hasattr(fecha, 'strftime') else str(fecha)
+                })
+            
+            # Renderizamos la tabla interactiva de SAP MM60
+            st.dataframe(
+                tabla_mm60,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
             st.warning("No se registran materiales cargados en el maestro actualmente.")
+
 
