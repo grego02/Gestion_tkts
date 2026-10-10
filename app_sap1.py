@@ -427,7 +427,7 @@ else:
                 if tickets_guardados:
                     for t_fecha, t_asunto, t_modulo, t_prioridad, t_detalle, t_info, t_id in tickets_guardados:
                                                 color_alerta = "🔴" if "Muy Alta" in t_prioridad else ("🟠" if "Alta" in t_prioridad else "🟢")
-                        with st.expander(f"{color_alerta} Ticket #{t_id} | {t_fecha} — {t_asunto}"):
+                    with st.expander(f"{color_alerta} Ticket #{t_id} | {t_fecha} — {t_asunto}"):
                             st.markdown(f"**Módulo SAP:** `{t_modulo.upper()}` | **Prioridad:** `{t_prioridad}`")
                             st.markdown(f"**Detalle Histórico:** {t_detalle}")
                             if t_info: 
